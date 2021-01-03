@@ -54,6 +54,7 @@ if (isMainThread) {
   const acceptJob = (uuid) => {
     workingWorkers++;
     const worker = new Worker(__filename);
+    let workerExited = false;
     queue.shift();
     worker.once("message", (uuid) => {
       // This means the worker is finished
@@ -62,13 +63,26 @@ if (isMainThread) {
         acceptJob(queue[0]); // Get the next job UUID in queue and remove it from the original queue
         delete jobs[uuid];
       }
+
+      setTimeout(() => {
+        if (!workerExited) {
+          console.warn(`Worker ${uuid} did not exit after finishing; possible resource leak`);
+        }
+      }, 1000);
     });
     worker.once("error", err => {
       console.error(`Error on worker ${uuid}:`, err);
       socket.send(Buffer.concat([Buffer.from([0x2]), Buffer.from(uuid), Buffer.from(err.toString())]), jobs[uuid].port, jobs[uuid].addr);
+
+      setTimeout(() => {
+        if (!workerExited) {
+          console.warn(`Worker ${uuid} did not exit after encountering an error; possible resource leak`);
+        }
+      }, 1000);
     });
     worker.once("exit", (code) => {
       workingWorkers--;
+      workerExited = true;
       if (queue.length > 0) {
         acceptJob(queue[0]);
         delete jobs[uuid];
